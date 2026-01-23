@@ -12,6 +12,81 @@ interface UseWhisperOptions {
 
 // Constants
 const MAX_AUDIO_SIZE_MB = 25;
+const TARGET_SAMPLE_RATE = 16000; // Nemotron model requires 16kHz
+
+/**
+ * Convert an audio blob to 16kHz mono WAV format using Web Audio API.
+ * This resamples and converts to mono for the Nemotron STT model.
+ */
+async function convertToWav(audioBlob: Blob): Promise<Blob> {
+  const audioContext = new AudioContext();
+  try {
+    const arrayBuffer = await audioBlob.arrayBuffer();
+    const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+
+    // Calculate resampled length
+    const resampledLength = Math.ceil(
+      (audioBuffer.length * TARGET_SAMPLE_RATE) / audioBuffer.sampleRate
+    );
+
+    // Use OfflineAudioContext to resample to 16kHz mono
+    const offlineContext = new window.OfflineAudioContext(1, resampledLength, TARGET_SAMPLE_RATE);
+
+    // Create buffer source
+    const source = offlineContext.createBufferSource();
+    source.buffer = audioBuffer;
+    source.connect(offlineContext.destination);
+    source.start(0);
+
+    // Render resampled audio
+    const resampledBuffer = await offlineContext.startRendering();
+    const monoSamples = resampledBuffer.getChannelData(0);
+
+    // Convert to 16-bit PCM
+    const pcmData = new Int16Array(monoSamples.length);
+    for (let i = 0; i < monoSamples.length; i++) {
+      const s = Math.max(-1, Math.min(1, monoSamples[i]));
+      pcmData[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+    }
+
+    // Create WAV file (16kHz mono)
+    const wavBuffer = new ArrayBuffer(44 + pcmData.length * 2);
+    const view = new DataView(wavBuffer);
+
+    // WAV header
+    const writeString = (offset: number, str: string) => {
+      for (let i = 0; i < str.length; i++) {
+        view.setUint8(offset + i, str.charCodeAt(i));
+      }
+    };
+
+    writeString(0, 'RIFF');
+    view.setUint32(4, 36 + pcmData.length * 2, true);
+    writeString(8, 'WAVE');
+    writeString(12, 'fmt ');
+    view.setUint32(16, 16, true); // fmt chunk size
+    view.setUint16(20, 1, true); // audio format (PCM)
+    view.setUint16(22, 1, true); // mono
+    view.setUint32(24, TARGET_SAMPLE_RATE, true);
+    view.setUint32(28, TARGET_SAMPLE_RATE * 2, true); // byte rate (16kHz * 1 channel * 2 bytes)
+    view.setUint16(32, 2, true); // block align (1 channel * 2 bytes)
+    view.setUint16(34, 16, true); // bits per sample
+    writeString(36, 'data');
+    view.setUint32(40, pcmData.length * 2, true);
+
+    // Write PCM data
+    const pcmBytes = new Uint8Array(wavBuffer, 44);
+    const pcmView = new DataView(pcmData.buffer);
+    for (let i = 0; i < pcmData.length; i++) {
+      pcmBytes[i * 2] = pcmView.getUint8(i * 2);
+      pcmBytes[i * 2 + 1] = pcmView.getUint8(i * 2 + 1);
+    }
+
+    return new Blob([wavBuffer], { type: 'audio/wav' });
+  } finally {
+    await audioContext.close();
+  }
+}
 const MAX_RECORDING_DURATION_SECONDS = 600; // 10 minutes
 const WARNING_SIZE_MB = 20; // Warn at 20MB
 
@@ -19,6 +94,7 @@ export const useWhisper = ({ onTranscription, onError, onSizeWarning }: UseWhisp
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [hasOpenAIKey, setHasOpenAIKey] = useState(false);
+  const [hasLocalModel, setHasLocalModel] = useState(false);
   const [canUseDictation, setCanUseDictation] = useState(false);
   const [audioContext, setAudioContext] = useState<AudioContext | null>(null);
   const [analyser, setAnalyser] = useState<AnalyserNode | null>(null);
@@ -60,6 +136,28 @@ export const useWhisper = ({ onTranscription, onError, onSizeWarning }: UseWhisp
     checkOpenAIKey();
   }, [getProviders]); // Re-check when providers change
 
+  // Check if local model is available
+  useEffect(() => {
+    const checkLocalModel = async () => {
+      try {
+        const response = await fetch(getApiUrl('/audio/config'), {
+          headers: {
+            'X-Secret-Key': await window.electron.getSecretKey(),
+          },
+        });
+        if (response.ok) {
+          const config = await response.json();
+          setHasLocalModel(config.local === true);
+        }
+      } catch (error) {
+        console.error('Error checking local model availability:', error);
+        setHasLocalModel(false);
+      }
+    };
+
+    checkLocalModel();
+  }, []);
+
   // Check if dictation can be used based on settings
   useEffect(() => {
     if (!dictationSettings) {
@@ -80,10 +178,13 @@ export const useWhisper = ({ onTranscription, onError, onSizeWarning }: UseWhisp
       case 'elevenlabs':
         setCanUseDictation(hasElevenLabsKey);
         break;
+      case 'local':
+        setCanUseDictation(hasLocalModel);
+        break;
       default:
         setCanUseDictation(false);
     }
-  }, [dictationSettings, hasOpenAIKey, hasElevenLabsKey]);
+  }, [dictationSettings, hasOpenAIKey, hasElevenLabsKey, hasLocalModel]);
 
   // Define stopRecording before startRecording to avoid circular dependency
   const stopRecording = useCallback(() => {
@@ -148,6 +249,12 @@ export const useWhisper = ({ onTranscription, onError, onSizeWarning }: UseWhisp
           );
         }
 
+        // For local provider, convert to WAV format since symphonia doesn't support opus codec
+        let processedBlob = audioBlob;
+        if (dictationSettings.provider === 'local' && audioBlob.type.includes('webm')) {
+          processedBlob = await convertToWav(audioBlob);
+        }
+
         // Convert blob to base64 for easier transport
         const reader = new FileReader();
         const base64Audio = await new Promise<string>((resolve, reject) => {
@@ -156,10 +263,10 @@ export const useWhisper = ({ onTranscription, onError, onSizeWarning }: UseWhisp
             resolve(base64.split(',')[1]); // Remove data:audio/webm;base64, prefix
           };
           reader.onerror = reject;
-          reader.readAsDataURL(audioBlob);
+          reader.readAsDataURL(processedBlob);
         });
 
-        const mimeType = audioBlob.type;
+        const mimeType = processedBlob.type;
         if (!mimeType) {
           throw new Error('Unable to determine audio format. Please try again.');
         }
@@ -182,6 +289,9 @@ export const useWhisper = ({ onTranscription, onError, onSizeWarning }: UseWhisp
             break;
           case 'elevenlabs':
             endpoint = '/audio/transcribe/elevenlabs';
+            break;
+          case 'local':
+            endpoint = '/audio/transcribe/local';
             break;
           default:
             throw new Error(`Unsupported provider: ${dictationSettings.provider}`);

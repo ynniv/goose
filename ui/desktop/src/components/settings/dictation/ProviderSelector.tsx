@@ -5,6 +5,7 @@ import { useConfig } from '../../ConfigContext';
 import { ElevenLabsKeyInput } from './ElevenLabsKeyInput';
 import { ProviderInfo } from './ProviderInfo';
 import { VOICE_DICTATION_ELEVENLABS_ENABLED } from '../../../updates';
+import { getApiUrl } from '../../../config';
 
 interface ProviderSelectorProps {
   settings: DictationSettings;
@@ -13,6 +14,7 @@ interface ProviderSelectorProps {
 
 export const ProviderSelector = ({ settings, onProviderChange }: ProviderSelectorProps) => {
   const [hasOpenAIKey, setHasOpenAIKey] = useState(false);
+  const [hasLocalModel, setHasLocalModel] = useState(false);
   const [showProviderDropdown, setShowProviderDropdown] = useState(false);
   const { getProviders } = useConfig();
 
@@ -30,6 +32,27 @@ export const ProviderSelector = ({ settings, onProviderChange }: ProviderSelecto
 
     checkOpenAIKey();
   }, [getProviders]);
+
+  useEffect(() => {
+    const checkLocalModel = async () => {
+      try {
+        const response = await fetch(getApiUrl('/audio/config'), {
+          headers: {
+            'X-Secret-Key': await window.electron.getSecretKey(),
+          },
+        });
+        if (response.ok) {
+          const config = await response.json();
+          setHasLocalModel(config.local === true);
+        }
+      } catch (error) {
+        console.error('Error checking local model availability:', error);
+        setHasLocalModel(false);
+      }
+    };
+
+    checkLocalModel();
+  }, []);
 
   const handleDropdownToggle = async () => {
     const newShowState = !showProviderDropdown;
@@ -59,6 +82,8 @@ export const ProviderSelector = ({ settings, onProviderChange }: ProviderSelecto
         return 'OpenAI Whisper';
       case 'elevenlabs':
         return 'ElevenLabs';
+      case 'local':
+        return 'Local (Nemotron)';
       default:
         return 'None (disabled)';
     }
@@ -96,12 +121,21 @@ export const ProviderSelector = ({ settings, onProviderChange }: ProviderSelecto
               {VOICE_DICTATION_ELEVENLABS_ENABLED && (
                 <button
                   onClick={() => handleProviderChange('elevenlabs')}
-                  className="w-full px-3 py-2 text-left text-sm hover:bg-background-subtle transition-colors text-text-default last:rounded-b-md"
+                  className="w-full px-3 py-2 text-left text-sm hover:bg-background-subtle transition-colors text-text-default"
                 >
                   ElevenLabs
                   {settings.provider === 'elevenlabs' && <span className="float-right">✓</span>}
                 </button>
               )}
+
+              <button
+                onClick={() => handleProviderChange('local')}
+                className="w-full px-3 py-2 text-left text-sm hover:bg-background-subtle transition-colors text-text-default last:rounded-b-md"
+              >
+                Local (Nemotron)
+                {!hasLocalModel && <span className="text-xs ml-1">(model not installed)</span>}
+                {settings.provider === 'local' && <span className="float-right">✓</span>}
+              </button>
             </div>
           )}
         </div>

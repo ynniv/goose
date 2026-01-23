@@ -4,6 +4,7 @@ pub mod error;
 pub mod openapi;
 pub mod routes;
 pub mod state;
+pub mod stt;
 pub mod tunnel;
 
 // Re-export commonly used items

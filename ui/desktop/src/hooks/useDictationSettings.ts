@@ -6,7 +6,7 @@ import {
   getDefaultDictationSettings,
 } from './dictationConstants';
 
-export type DictationProvider = 'openai' | 'elevenlabs' | null;
+export type DictationProvider = 'openai' | 'elevenlabs' | 'local' | null;
 
 export interface DictationSettings {
   enabled: boolean;

@@ -1,8 +1,10 @@
-/// Audio transcription route handler
-///
-/// This module provides endpoints for audio transcription using OpenAI's Whisper API.
-/// The OpenAI API key must be configured in the backend for this to work.
+//! Audio transcription route handler
+//!
+//! This module provides endpoints for audio transcription using OpenAI's Whisper API,
+//! ElevenLabs, or local Nemotron model.
+
 use crate::state::AppState;
+use crate::stt::local;
 use axum::{
     http::StatusCode,
     routing::{get, post},
@@ -356,6 +358,20 @@ async fn transcribe_elevenlabs_handler(
     }))
 }
 
+/// Transcribe audio using local Nemotron model
+///
+/// Uses the local Nemotron 0.6B model for offline speech-to-text.
+/// No API key required - runs entirely on-device.
+async fn transcribe_local_handler(
+    Json(request): Json<TranscribeRequest>,
+) -> Result<Json<TranscribeResponse>, StatusCode> {
+    let (audio_bytes, _file_extension) = validate_audio_input(&request.audio, &request.mime_type)?;
+
+    let text = local::transcribe_local_handler(audio_bytes, request.mime_type).await?;
+
+    Ok(Json(TranscribeResponse { text }))
+}
+
 /// Check if dictation providers are configured
 ///
 /// Returns configuration status for dictation providers
@@ -371,8 +387,25 @@ async fn check_dictation_config() -> Result<Json<serde_json::Value>, StatusCode>
         }
     };
 
+    // Check if ONNX Runtime is installed
+    let has_ort = local::is_ort_installed();
+
+    // Check if local Nemotron model is available (only usable if ORT is also installed)
+    let model_path = local::get_nemotron_model_path();
+    let has_model = std::path::Path::new(&model_path)
+        .join("encoder.onnx")
+        .exists();
+
+    // Local transcription requires both ORT and the model
+    let has_local = has_ort && has_model;
+
     Ok(Json(serde_json::json!({
-        "elevenlabs": has_elevenlabs
+        "elevenlabs": has_elevenlabs,
+        "local": has_local,
+        "local_details": {
+            "onnx_runtime_installed": has_ort,
+            "model_installed": has_model
+        }
     })))
 }
 
@@ -383,7 +416,16 @@ pub fn routes(state: Arc<AppState>) -> Router {
             "/audio/transcribe/elevenlabs",
             post(transcribe_elevenlabs_handler),
         )
+        .route("/audio/transcribe/local", post(transcribe_local_handler))
         .route("/audio/config", get(check_dictation_config))
+        // ONNX Runtime management endpoints
+        .route("/audio/runtime/status", get(local::get_ort_status))
+        .route("/audio/runtime/download", post(local::download_ort))
+        .route("/audio/runtime/clean", post(local::delete_ort))
+        // Model management endpoints
+        .route("/audio/model/status", get(local::get_model_status))
+        .route("/audio/model/download", post(local::download_model))
+        .route("/audio/model/clean", post(local::delete_model))
         .with_state(state)
 }
 

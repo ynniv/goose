@@ -1,5 +1,6 @@
 import { DictationProvider } from '../../../hooks/useDictationSettings';
 import { VOICE_DICTATION_ELEVENLABS_ENABLED } from '../../../updates';
+import { LocalModelManager } from './LocalModelManager';
 
 interface ProviderInfoProps {
   provider: DictationProvider;
@@ -33,6 +34,23 @@ export const ProviderInfo = ({ provider }: ProviderInfoProps) => {
           <p className="text-xs text-text-muted mt-2">
             <strong>Note:</strong> Requires an ElevenLabs API key with speech-to-text access.
           </p>
+        </div>
+      )}
+      {provider === 'local' && (
+        <div>
+          <p className="text-xs text-text-muted">
+            Uses NVIDIA Nemotron 0.6B model for fully offline transcription. No API key required.
+          </p>
+          <p className="text-xs text-text-muted mt-2">
+            <strong>Features:</strong>
+          </p>
+          <ul className="text-xs text-text-muted ml-4 mt-1 list-disc">
+            <li>Completely offline - no data leaves your device</li>
+            <li>No API costs or rate limits</li>
+            <li>Automatic punctuation</li>
+            <li>English language support</li>
+          </ul>
+          <LocalModelManager />
         </div>
       )}
     </div>

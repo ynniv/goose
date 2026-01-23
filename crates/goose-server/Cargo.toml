@@ -34,8 +34,18 @@ thiserror = "1.0"
 clap = { version = "4.4", features = ["derive"] }
 serde_yaml = "0.9.34"
 utoipa = { version = "4.1", features = ["axum_extras", "chrono"] }
-reqwest = { version = "0.12.9", features = ["json", "rustls-tls", "blocking", "multipart"], default-features = false }
+reqwest = { version = "0.12.9", features = ["json", "rustls-tls", "blocking", "multipart", "stream"], default-features = false }
 tokio-util = "0.7.15"
+# Local speech-to-text (Nemotron)
+# Use load-dynamic to avoid build-time ONNX Runtime download (which needs native-tls)
+# Runtime is downloaded separately via UI
+parakeet-rs = { version = "0.2", default-features = false, features = ["cpu", "load-dynamic"] }
+ort = { version = "2.0.0-rc.11", default-features = false, features = ["load-dynamic"] }
+symphonia = { version = "0.5", default-features = false, features = ["wav", "pcm", "mkv"] }
+symphonia-adapter-libopus = "0.2"
+async-stream = "0.3"
+flate2 = "1.0"
+tar = "0.4"
 serde_path_to_error = "0.1.20"
 tokio-tungstenite = { version = "0.28.0", features = ["rustls-tls-native-roots"] }
 url = "2.5.7"
