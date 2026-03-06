@@ -1600,6 +1600,12 @@ fn handle_mcp_notification(
                             .get("name")
                             .and_then(|v| v.as_str())
                             .unwrap_or("unknown");
+
+                        // Suppress noisy chat coordination tool notifications
+                        if matches!(tool_name, "chat_send" | "chat_read" | "chat_claim" | "chat_release" | "chat_list") {
+                            return;
+                        }
+
                         let arguments = tool_call
                             .get("arguments")
                             .and_then(|v| v.as_object())

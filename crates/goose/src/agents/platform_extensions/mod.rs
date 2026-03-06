@@ -1,5 +1,6 @@
 pub mod analyze;
 pub mod apps;
+pub mod chat;
 pub mod chatrecall;
 #[cfg(feature = "code-mode")]
 pub mod code_execution;
@@ -63,6 +64,19 @@ pub static PLATFORM_EXTENSIONS: Lazy<HashMap<&'static str, PlatformExtensionDef>
                 default_enabled: true,
                 unprefixed_tools: false,
                 client_factory: |ctx| Box::new(apps::AppsManagerClient::new(ctx).unwrap()),
+            },
+        );
+
+        map.insert(
+            chat::EXTENSION_NAME,
+            PlatformExtensionDef {
+                name: chat::EXTENSION_NAME,
+                display_name: "Chat",
+                description:
+                    "Inter-subagent messaging for coordinating concurrent tasks and avoiding conflicts",
+                default_enabled: false,
+                unprefixed_tools: true,
+                client_factory: |ctx| Box::new(chat::ChatClient::new(ctx).unwrap()),
             },
         );
 
